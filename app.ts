@@ -1,17 +1,39 @@
 'use strict';
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", onLoad);
+
+async function onLoad() {
     let canvEl = throwOnNull(document.querySelector("canvas"), "canvEl");
     let ctx = throwOnNull(canvEl.getContext("2d"), "ctx");
 
     canvEl.width = document.body.clientWidth;
     canvEl.height = document.body.clientHeight;
 
-    new Simulation([
-        new Layer<GroundCell>(canvEl.width, canvEl.height),
-        
-    ], ctx)
-});
+    let ground = new Layer<GroundCell>(canvEl.width, canvEl.height);
+    ground.map(() => new GroundCell());
+
+    let animals = new Layer<Animal>(canvEl.width, canvEl.height);
+    animals.map((x, y, current) => {
+        if (Math.random() < 0.3) return new GreenProducer()
+        else if (Math.random() < 0.5) return new RedPredator();
+        else return current;
+    });
+
+    let sim = new Simulation([
+        ground,
+        animals,
+    ], ctx);
+
+    while (true) {
+        await sleep(1000);
+        sim.step();
+        sim.draw();
+    }
+}
+
+function sleep(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function throwOnNull<T>(something: T | null, varName: string): T {
     if (something === null) {

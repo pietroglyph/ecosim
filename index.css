@@ -1,11 +1,14 @@
-body {
-    margin: 0px; 
-    padding: 0px; 
-    height: 95vh; 
-    width: 100%;
+* {
+    margin: 0;
+    padding: 0;
 }
 
-#display {
+body, html {
+    height: 100%;
+}
+
+canvas {
+    position: absolute;
     width: 100%;
     height: 100%;
 }

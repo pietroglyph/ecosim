@@ -24,14 +24,16 @@ class GreenProducer extends Animal {
     public readonly color = new Color(ColorBase.Green);
     public strength = 1; // beginning strength
 
-    update(currentLayer: Layer<Animal>, belowLayer: Layer<any> | null, x: number, y: number): CellAction {
+    update(currentLayer: Layer<Animal>, _: Layer<any> | null, x: number, y: number): CellAction {
         if (this.strength > birthCost) {
             let hasSuitablePartner = false;
             let babyLocation: { x: number, y: number } | undefined;
 
-            currentLayer.forEachInRadius(x, y, 4, (babyX, babyY, current) => {
+            currentLayer.forEachInRadius(x, y, 4, (babyX, babyY, current): boolean => {
                 if (current === null) babyLocation = { x: babyX, y: babyY };
                 else if (current instanceof GreenProducer) hasSuitablePartner = true;
+
+                return babyLocation !== undefined && hasSuitablePartner !== undefined && Math.random() < cellSelectionProb;
             });
 
             if (hasSuitablePartner && babyLocation !== undefined)
@@ -47,29 +49,37 @@ class GreenProducer extends Animal {
 
 class RedPredator extends Animal {
     public readonly color = new Color(ColorBase.Red);
-    public strength = 20; // beginning strength
+    public strength = 1.2; // beginning strength
 
-    update(currentLayer: Layer<Animal>, belowLayer: Layer<any> | null, x: number, y: number): CellAction {
+    update(currentLayer: Layer<Animal>, _: Layer<any> | null, x: number, y: number): CellAction {
         let preyLocation: { x: number, y: number } | undefined;
         let moveLocation: { x: number, y: number } | undefined;
+        let babyLocation: { x: number, y: number } | undefined;
+        let hasSuitablePartner = false;
 
-        currentLayer.forEachInRadius(x, y, 10, (preyX, preyY, current) => {
-            if (current === null) return;
-
-            if (distance(x, y, preyX, preyY) < maxMoveDistance) {
+        currentLayer.forEachInRadius(x, y, 4, (preyX, preyY, current): boolean => {
+            if (current === null) {
+                babyLocation = { x: preyX, y: preyY };
+            } else if (current instanceof RedPredator) {
+                hasSuitablePartner = true;
+            } else if (distance(x, y, preyX, preyY) < maxMoveDistance) {
                 preyLocation = { x: preyX, y: preyY };
             } else {
                 moveLocation =
-                    new Vector(preyX - x, preyY - y).setMagnitude(maxMoveDistance).truncate().toObject();
+                    new Vector(preyX - x, preyY - y).setMagnitude(maxMoveDistance).constrainRange(new Vector(0, 0), currentLayer.getMax()).truncate().toObject();
             }
+
+            return preyLocation !== undefined && moveLocation !== undefined && hasSuitablePartner && Math.random() < cellSelectionProb;
         });
 
         if (preyLocation) {
             return new PredateAction(preyLocation.x, preyLocation.y);
-        } else if (moveLocation)
+        } else if (moveLocation) {
             return new MoveAction(moveLocation.x, moveLocation.y);
-        else {
-            let move = new Vector(Math.random(), Math.random()).setMagnitude(maxMoveDistance);
+        } else if (hasSuitablePartner && babyLocation) {
+            return new BirthAction(new RedPredator(), babyLocation.x, babyLocation.y);
+        } else {
+            let move = new Vector(Math.random(), Math.random()).setMagnitude(maxMoveDistance).constrainRange(new Vector(0, 0), currentLayer.getMax()).truncate();
             return new MoveAction(move.x, move.y);
         }
     }

@@ -4,21 +4,22 @@ const cellSize = 4; // pixels
 const maxStrength = 4.5;
 const maxMoveDistance = 5;
 
-const respirationCost = 0.3;
-const birthCost = 0.8;
+const respirationCost = 0.2;
+const birthCost = 0.2;
 const moveCost = 0.5;
 const predateCost = 0.3;
 
-const photosynthesisReturn = respirationCost;
+const photosynthesisReturn = 5.0;
 const photosynthesisReturnMaxExtra = 0.2; // Up to this much randomly added to photosynthesisReturn
-const predatePercentReturn = 0.8; // You get this percent of the cell you eat
+const predatePercentReturn = 3.0; // You get this percent of the cell you eat
 const predatePercentReturnMaxExtra = 0.2; // Up to this much is added to predatePercentReturn
 
-const higherStrengthPredateFaillureProb = 0.15;
+const higherStrengthPredateFailureProb = 0.75;
 const equalStrengthPredateSuccessProb = 0.5;
 const lowerStrengthPredateSucessProb = 0.2;
+const cellSelectionProb = 0.4;
 
-var oneHundredPercentMortalityAge = 1e30; // milleseconds
+var oneHundredPercentMortalityAge = 500000; // milleseconds
 
 class Simulation {
     constructor(private layers: Layer<any>[], private ctx: CanvasRenderingContext2D) {
@@ -181,11 +182,11 @@ class Layer<T extends Cell> {
         this.cells.forEach((row, y) => row.forEach((cell, x) => {
             if (!cell) return;
 
-            cell.modifyStrength(-respirationCost);
+            let isAlive = cell.modifyStrength(-respirationCost);
 
             let action = cell.update(this, belowLayer, x, y);
 
-            if (Math.random() < cell.getDeathProbability()) {
+            if (Math.random() < cell.getDeathProbability() || !isAlive) {
                 action = new DeathAction();
             }
 
@@ -209,7 +210,7 @@ class Layer<T extends Cell> {
                     if (prey === null) return;
 
                     if (
-                        (prey.getFightingStrength() < cell.getFightingStrength() && Math.random() > higherStrengthPredateFaillureProb) ||
+                        (prey.getFightingStrength() < cell.getFightingStrength() && Math.random() > higherStrengthPredateFailureProb) ||
                         (prey.getFightingStrength() === cell.getFightingStrength() && Math.random() < equalStrengthPredateSuccessProb) ||
                         (prey.getFightingStrength() > cell.getFightingStrength() && Math.random() < lowerStrengthPredateSucessProb)
                     ) {
@@ -271,12 +272,21 @@ class Layer<T extends Cell> {
         }));
     }
 
-    forEachInRadius(centerX: number, centerY: number, radius: number, fn: (x: number, y: number, currentOccupant: T | null) => void) {
+    forEachInRadius(centerX: number, centerY: number, radius: number, fn: (x: number, y: number, currentOccupant: T | null) => boolean) {
         for (let y = Math.max(centerY - radius, 0); y <= centerY + radius && y < this.cells.length; y++) {
             for (let x = Math.max(centerX - radius, 0); x <= centerX + radius && x < this.cells[y].length; x++) {
-                fn(x, y, this.getCell(x, y));
+                let shouldFinish = fn(x, y, this.getCell(x, y));
+                if (shouldFinish) return;
             }
         }
+    }
+
+    getMax(): Vector {
+        let vec = new Vector(0, 0);
+        vec.y = this.cells.length - 1;
+        if (this.cells.length > 0)
+            vec.x = this.cells[0].length - 1;
+        return vec;
     }
 
     private assertNever(x: never): never {
@@ -371,6 +381,12 @@ class Vector {
 
     public distance(other: Vector): number {
         return Math.hypot(other.x - this.x, other.y - this.y);
+    }
+
+    public constrainRange(min: Vector, max: Vector): Vector {
+        this.x = Math.max(min.x, Math.min(max.x, this.x));
+        this.y = Math.max(min.y, Math.min(max.y, this.y))
+        return this;
     }
 
     public copy(): Vector {

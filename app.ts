@@ -13,8 +13,8 @@ async function onLoad() {
     ground.map(() => new GroundCell());
 
     let animals = new Layer<Animal>(canvEl.width, canvEl.height);
-    animals.map((x, y, current) => {
-        if (Math.random() < 0.3) return new GreenProducer()
+    animals.map((_, __, current) => {
+        if (Math.random() < 0.3) return new GreenProducer();
         else if (Math.random() < 0.5) return new RedPredator();
         else return current;
     });
@@ -25,9 +25,9 @@ async function onLoad() {
     ], ctx);
 
     while (true) {
-        await sleep(1000);
         sim.step();
         sim.draw();
+        await sleep(10);
     }
 }
 

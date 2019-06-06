@@ -1,25 +1,31 @@
 const colorMaxVal = 255;
-const cellSize = 4; // pixels
+const cellSize = 6; // pixels
 
 const maxStrength = 4.5;
 const maxMoveDistance = 5;
+const maxReproduceDistance = 20;
 
 const respirationCost = 0.2;
-const birthCost = 0.2;
+const birthCost = 0.8;
 const moveCost = 0.5;
 const predateCost = 0.3;
+const incompatibilityCost = 0.8;
+const overcrowdingCost = 900.0;
 
-const photosynthesisReturn = 5.0;
-const photosynthesisReturnMaxExtra = 0.2; // Up to this much randomly added to photosynthesisReturn
+const grazeReturn = 20.0;
+const grazeReturnMaxExtra = 1.0; // Up to this much randomly added to photosynthesisReturn
 const predatePercentReturn = 3.0; // You get this percent of the cell you eat
 const predatePercentReturnMaxExtra = 0.2; // Up to this much is added to predatePercentReturn
 
 const higherStrengthPredateFailureProb = 0.75;
 const equalStrengthPredateSuccessProb = 0.5;
 const lowerStrengthPredateSucessProb = 0.2;
-const cellSelectionProb = 0.4;
+const cellSelectionProb = 0.003;
+const overcrowdingPenaltyProb = 0.9;
 
-var oneHundredPercentMortalityAge = 500000; // milleseconds
+const neighborsPerCellMinForOvercrowding = 3 / 9;
+
+const oneHundredPercentMortalityAge = 50000; // milleseconds
 
 class Simulation {
     constructor(private layers: Layer<any>[], private ctx: CanvasRenderingContext2D) {
@@ -34,7 +40,8 @@ class Simulation {
         }
     }
 
-    draw() {
+    draw(width: number, height: number) {
+        this.ctx.clearRect(0, 0, width, height);
         for (let layer of this.layers) {
             layer.draw(this.ctx);
         }
@@ -69,6 +76,10 @@ abstract class Cell {
     public getFightingStrength(): number {
         return this.strength;
     }
+
+    public isCompatibleWith(_cell: Cell): boolean {
+        return true;
+    }
 }
 
 class BirthAction<T extends Cell> {
@@ -89,8 +100,8 @@ class PredateAction {
     }
 }
 
-class PhotosynthesizeAction {
-    public readonly kind = "photosynthesize";
+class GrazeAction {
+    public readonly kind = "graze";
 }
 
 class MoveAction {
@@ -108,7 +119,7 @@ class DoNothingAction {
 // TypeScript's weird version of an algebraic data type
 type CellAction =
     BirthAction<any> | DeathAction | PredateAction |
-    PhotosynthesizeAction | MoveAction | DoNothingAction;
+    GrazeAction | MoveAction | DoNothingAction;
 
 enum ColorBase {
     Red,
@@ -143,7 +154,7 @@ class Color {
 
     randomPerturb(maxPerturb: number): void {
         this.changeComponentForBase(
-            (compVal) => compVal + randomRange(-maxPerturb, maxPerturb)
+            (compVal) => Math.min(Math.max(compVal + randomRange(-maxPerturb, maxPerturb), 0), colorMaxVal)
         );
     }
 
@@ -158,10 +169,10 @@ class Color {
                 this.r = func(this.r, (other !== undefined) ? other.r : undefined);
                 break;
             case ColorBase.Green:
-                this.g = func(this.r, (other !== undefined) ? other.r : undefined);
+                this.g = func(this.g, (other !== undefined) ? other.g : undefined);
                 break;
             case ColorBase.Blue:
-                this.b = func(this.r, (other !== undefined) ? other.r : undefined);
+                this.b = func(this.b, (other !== undefined) ? other.b : undefined);
                 break;
             default:
                 throw new Error("Cannot apply operation to ColorBase " + this.base);
@@ -180,13 +191,18 @@ class Layer<T extends Cell> {
 
     update(belowLayer: Layer<any> | null) {
         this.cells.forEach((row, y) => row.forEach((cell, x) => {
-            if (!cell) return;
+            if (cell === null) return;
 
             let isAlive = cell.modifyStrength(-respirationCost);
+            // let isAlive = true;
 
             let action = cell.update(this, belowLayer, x, y);
 
-            if (Math.random() < cell.getDeathProbability() || !isAlive) {
+            if (belowLayer && !cell.isCompatibleWith(belowLayer.getCell(x, y))) {
+                isAlive = isAlive && cell.modifyStrength(-incompatibilityCost);
+            }
+
+            if (Math.random() < cell.getDeathProbability() || (!isAlive && cell.getDeathProbability() !== 0)) {
                 action = new DeathAction();
             }
 
@@ -207,7 +223,7 @@ class Layer<T extends Cell> {
                     if (!canPredate) return;
 
                     let prey = this.getCell(action.x, action.y);
-                    if (prey === null) return;
+                    if (!prey) return;
 
                     if (
                         (prey.getFightingStrength() < cell.getFightingStrength() && Math.random() > higherStrengthPredateFailureProb) ||
@@ -218,8 +234,8 @@ class Layer<T extends Cell> {
                         this.moveCell(x, y, action.x, action.y);
                     }
                     return;
-                case "photosynthesize":
-                    cell.modifyStrength(photosynthesisReturn + Math.random() * photosynthesisReturnMaxExtra)
+                case "graze":
+                    cell.modifyStrength(grazeReturn + Math.random() * grazeReturnMaxExtra)
                     return;
                 case "move":
                     let canMove = cell.modifyStrength(-moveCost);
@@ -273,10 +289,21 @@ class Layer<T extends Cell> {
     }
 
     forEachInRadius(centerX: number, centerY: number, radius: number, fn: (x: number, y: number, currentOccupant: T | null) => boolean) {
-        for (let y = Math.max(centerY - radius, 0); y <= centerY + radius && y < this.cells.length; y++) {
-            for (let x = Math.max(centerX - radius, 0); x <= centerX + radius && x < this.cells[y].length; x++) {
-                let shouldFinish = fn(x, y, this.getCell(x, y));
-                if (shouldFinish) return;
+        if (Math.random() < 0.5) {
+            for (let y = Math.max(centerY - radius, 0); y <= centerY + radius && y < this.cells.length; y++) {
+                if (!this.cells[y]) continue;
+                for (let x = Math.max(centerX - radius, 0); x <= centerX + radius && x < this.cells[y].length; x++) {
+                    let shouldFinish = fn(x, y, this.getCell(x, y));
+                    if (shouldFinish) return;
+                }
+            }
+        } else {
+            for (let y = Math.min(centerY + radius, this.cells.length); y >= 0 && y >= centerY - radius; y--) {
+                if (!this.cells[y]) continue;
+                for (let x = Math.min(centerX + radius, this.cells[y].length); x >= 0 && x >= centerX - radius; x--) {
+                    let shouldFinish = fn(x, y, this.getCell(x, y));
+                    if (shouldFinish) return;
+                }
             }
         }
     }
@@ -402,7 +429,7 @@ class Vector {
     }
 
     public toObject() {
-        return {x: this.x, y: this.y};
+        return { x: this.x, y: this.y };
     }
 }
 
@@ -412,4 +439,10 @@ function distance(x1: number, y1: number, x2: number, y2: number): number {
 
 function randomRange(min: number, max: number): number {
     return Math.random() * (max - min) + min;
+}
+
+function randomIntRange(min: number, max: number): number {
+    min = Math.ceil(min);
+    max = Math.floor(max);
+    return Math.floor(Math.random() * (max - min + 1)) + min;
 }

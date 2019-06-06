@@ -1,6 +1,6 @@
 {
   "name": "ecosim",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Simulation of edge effects, island effects, limiting factors, and other ecological phenomena",
   "main": "app.js",
   "scripts": {
@@ -12,7 +12,6 @@
   },
   "author": "Declan Freeman-Gleason",
   "license": "GPL-3.0-or-later",
-  "dependencies": {},
   "devDependencies": {
     "concurrently": "^4.1.0",
     "lite-server": "^2.4.0",
